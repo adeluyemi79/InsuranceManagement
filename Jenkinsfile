@@ -1,63 +1,83 @@
-node {
-    def mavenHome, mavenCMD, docker, tag, dockerHubUser, containerName, httpPort = ""
+pipeline {
+    agent any
 
-    stage('Prepare Environment') {
-        echo 'Initialize Environment'
-        mavenHome = tool name: 'maven', type: 'maven'
-        mavenCMD = "${mavenHome}/bin/mvn"
-        tag = "3.0"
-        dockerHubUser = "adeluyemi79"
-        containerName = "insure-me"
-        httpPort = "8081"
-    }
-
-    stage('Code Checkout') {
-        try {
-            checkout scm
-        } catch(Exception e) {
-            echo "Exception occurred during Git Code Checkout Stage: ${e.getMessage()}"
-            currentBuild.result = "FAILURE"
-            error(e)
+    stages {
+        stage('Prepare Environment') {
+            steps {
+                echo 'Initialize Environment'
+                script {
+                    def mavenHome = tool name: 'maven', type: 'maven'
+                    env.MAVEN_HOME = mavenHome
+                    env.PATH = "${mavenHome}/bin:${env.PATH}"
+                    env.tag = "3.0"
+                    env.dockerHubUser = "adeluyemi79"
+                    env.containerName = "insure-me"
+                    env.httpPort = "8081"
+                }
+            }
         }
-    }
 
-    stage('Maven Build') {
-        sh "${mavenCMD} clean package"
-    }
-
-    stage('Publish Test Reports') {
-        publishHTML([allowMissing: false, alwaysLinkToLastBuild: false, keepAll: false, reportDir: 'target/surefire-reports', reportFiles: 'index.html', reportName: 'HTML Report', reportTitles: '', useWrapperFileDirectly: true])
-    }
-
-    stage('Docker Image Build') {
-        echo 'Creating Docker image'
-        sh "docker build -t $dockerHubUser/$containerName:$tag --pull --no-cache ."
-    }
-
-    stage('Docker Image Scan') {
-        echo 'Scanning Docker image for vulnerabilities'
-        sh "trivy $dockerHubUser/$containerName:$tag"
-    }
-
-    stage('Publishing Image to DockerHub') {
-        echo 'Pushing the docker image to DockerHub'
-        withCredentials([usernamePassword(credentialsId: 'dockerHubAccount', usernameVariable: 'dockerUser', passwordVariable: 'dockerPassword')]) {
-            sh "docker login -u $dockerUser -p $dockerPassword"
-            sh "docker push $dockerUser/$containerName:$tag"
-            echo "Image push complete"
+        stage('Code Checkout') {
+            steps {
+                checkout scm
+            }
         }
-    }
 
-    stage('Docker Container Deployment') {
-        echo "Removing existing container: $containerName"
-        sh "docker rm $containerName -f"
-        
-        echo "Pulling Docker image: $dockerHubUser/$containerName:$tag"
-        sh "docker pull $dockerHubUser/$containerName:$tag"
-        
-        echo "Starting Docker container: $containerName"
-        sh "docker run -d --rm -p $httpPort:$httpPort --name $containerName $dockerHubUser/$containerName:$tag"
-        
-        echo "Application started on port: ${httpPort} (http)"
+        stage('Maven Build') {
+            steps {
+                sh "${env.MAVEN_HOME}/bin/mvn clean package"
+            }
+        }
+
+        stage('Publish Test Reports') {
+            steps {
+                publishHTML([allowMissing: false, alwaysLinkToLastBuild: false, keepAll: false, reportDir: 'target/surefire-reports', reportFiles: 'index.html', reportName: 'HTML Report', reportTitles: '', useWrapperFileDirectly: true])
+            }
+        }
+
+        stage('Docker Image Build') {
+            steps {
+                echo 'Creating Docker image'
+                sh "docker build -t ${env.dockerHubUser}/${env.containerName}:${env.tag} --pull --no-cache ."
+            }
+        }
+
+        stage('Docker Image Scan') {
+            steps {
+                echo 'Installing Trivy'
+                sh "wget -qO /tmp/trivy.tar.gz https://github.com/aquasecurity/trivy/releases/download/v0.21.0/trivy_0.21.0_Linux-64bit.tar.gz"
+                sh "tar -xzvf /tmp/trivy.tar.gz -C /tmp/"
+                sh "sudo mv /tmp/trivy /usr/local/bin/"
+
+                echo 'Scanning Docker image for vulnerabilities'
+                sh "trivy ${env.dockerHubUser}/${env.containerName}:${env.tag}"
+            }
+        }
+
+        stage('Publishing Image to DockerHub') {
+            steps {
+                echo 'Pushing the docker image to DockerHub'
+                withCredentials([usernamePassword(credentialsId: 'dockerHubAccount', usernameVariable: 'dockerUser', passwordVariable: 'dockerPassword')]) {
+                    sh "docker login -u $dockerUser -p $dockerPassword"
+                    sh "docker push $dockerUser/$containerName:$tag"
+                    echo "Image push complete"
+                }
+            }
+        }
+
+        stage('Docker Container Deployment') {
+            steps {
+                echo "Removing existing container: ${env.containerName}"
+                sh "docker rm ${env.containerName} -f"
+                
+                echo "Pulling Docker image: ${env.dockerHubUser}/${env.containerName}:${env.tag}"
+                sh "docker pull ${env.dockerHubUser}/${env.containerName}:${env.tag}"
+                
+                echo "Starting Docker container: ${env.containerName}"
+                sh "docker run -d --rm -p ${env.httpPort}:${env.httpPort} --name ${env.containerName} ${env.dockerHubUser}/${env.containerName}:${env.tag}"
+                
+                echo "Application started on port: ${env.httpPort} (http)"
+            }
+        }
     }
 }
