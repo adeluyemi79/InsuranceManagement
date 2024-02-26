@@ -58,8 +58,8 @@ pipeline {
             steps {
                 echo 'Pushing the docker image to DockerHub'
                 withCredentials([usernamePassword(credentialsId: 'dockerHubAccount', usernameVariable: 'dockerUser', passwordVariable: 'dockerPassword')]) {
-                    sh "docker login -u $dockerUser -p $dockerPassword"
-                    sh "docker push $dockerUser/$containerName:$tag"
+                    sh "sudo docker login -u $dockerUser -p $dockerPassword"
+                    sh "sudo docker push $dockerUser/$containerName:$tag"
                     echo "Image push complete"
                 }
             }
