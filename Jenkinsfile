@@ -15,8 +15,9 @@ node {
         try {
             checkout scm
         } catch(Exception e) {
-            echo 'Exception occurred in Git Code Checkout Stage'
+            echo "Exception occurred during Git Code Checkout Stage: ${e.getMessage()}"
             currentBuild.result = "FAILURE"
+            error(e)
         }
     }
 
@@ -48,9 +49,15 @@ node {
     }
 
     stage('Docker Container Deployment') {
+        echo "Removing existing container: $containerName"
         sh "docker rm $containerName -f"
+        
+        echo "Pulling Docker image: $dockerHubUser/$containerName:$tag"
         sh "docker pull $dockerHubUser/$containerName:$tag"
+        
+        echo "Starting Docker container: $containerName"
         sh "docker run -d --rm -p $httpPort:$httpPort --name $containerName $dockerHubUser/$containerName:$tag"
+        
         echo "Application started on port: ${httpPort} (http)"
     }
 }
